@@ -8,7 +8,8 @@ from app.schemas import PropertyManager, Property
 class PropService:
     property_manager = PropertyManager()
 
-    def get_properties(self) -> list[Property]:
+    async def get_properties(self) -> list[Property]:
+        self.property_manager.clear_list()
         website_url = settings.website_url
         params = {
             "page": 0,  # Este valor lo iremos incrementando
@@ -23,74 +24,73 @@ class PropService:
         }
         page = 0
 
-        while True:
-            params["page"] = page
-            try:
-                response = httpx.get(website_url, params=params)
-                response.raise_for_status()
-                page_content = response.text
-                if "No hay propiedades que coincidan con tu búsqueda" in page_content:
-                    logger.info(f"No more properties found on page {page}. Stopping.")
-                    break
-                soup = BeautifulSoup(page_content, "html.parser")
-                logger.info(f"Page {page} processed successfully.")
-                properties = soup.find_all("div", class_="card-remax__header-body")
-                self.structure_property(properties)
-                page += 1
+        async with httpx.AsyncClient() as client:
+            while True:
+                params["page"] = page
+                try:
+                    response = await client.get(website_url, params=params)
+                    response.raise_for_status()
+                    page_content = response.text
 
-            except httpx.HTTPStatusError as http_err:
-                logger.error(f"HTTP error occurred: {http_err}")
-                break
-            except Exception as e:
-                logger.error(f"An error occurred: {e}")
-                break
+                    if (
+                        "No hay propiedades que coincidan con tu búsqueda"
+                        in page_content
+                    ):
+                        logger.info(
+                            f"No more properties found on page {page}. Stopping."
+                        )
+                        break
+
+                    soup = BeautifulSoup(page_content, "html.parser")
+                    logger.info(f"Page {page} processed successfully.")
+                    properties = soup.findAll("div", class_="card-remax viewList")
+                    logger.info(len(properties))
+                    self.scrape_property(properties)
+                    page += 1
+
+                except httpx.HTTPStatusError as http_err:
+                    logger.error(f"HTTP error occurred: {http_err}")
+                    break
+                except Exception as e:
+                    logger.error(f"An error occurred: {e}")
+                    break
 
         return self.property_manager.get_properties()
 
-    def structure_property(self, properties: list[any]):
+    def scrape_property(self, properties: list[any]):
         for prop in properties:
-            self.property_manager.add_property(
-                property_data={
-                    "price_usd": float(
-                        prop.find("span", class_="price")
-                        .text.replace("$", "")
-                        .replace(",", "")
-                        .strip()
-                    ),
-                    "expenses_ars": float(
-                        prop.find("span", class_="expenses")
-                        .text.replace("$", "")
-                        .replace(",", "")
-                        .strip()
-                    ),
-                    "address": prop.find("span", class_="address").text.strip(),
-                    "total_area_m2": float(
-                        prop.find("span", class_="total-area")
-                        .text.replace("m²", "")
-                        .strip()
-                    ),
-                    "covered_area_m2": float(
-                        prop.find("span", class_="covered-area")
-                        .text.replace("m²", "")
-                        .strip()
-                    ),
-                    "rooms": int(prop.find("span", class_="rooms").text.strip()),
-                    "bathrooms": int(
-                        prop.find("span", class_="bathrooms").text.strip()
-                    ),
-                    "description": prop.find("p", class_="description").text.strip(),
-                    "broker_name": prop.find("span", class_="broker-name").text.strip(),
-                    "broker_license": prop.find(
-                        "span", class_="broker-license"
-                    ).text.strip(),
-                    "contact_phone": prop.find(
-                        "span", class_="contact-phone"
-                    ).text.strip(),
-                    "contact_office": prop.find(
-                        "span", class_="contact-office"
-                    ).text.strip(),
-                }
+
+            def safe_select(selector):
+                element = prop.select_one(selector)
+                return element.text.strip() if element else "N/A"
+
+            price_usd = (
+                safe_select(".card__price").replace(".", "").replace(" USD", "").strip()
             )
+            expenses_ars = (
+                safe_select(".card__expenses")
+                .replace("+ ", "")
+                .replace(".", "")
+                .replace(" ARS expensas", "")
+                .strip()
+            )
+            address = safe_select(".card__address")
+            total_area_m2 = safe_select(".feature--m2total span")
+            covered_area_m2 = safe_select(".feature--m2cover span")
+            rooms = safe_select(".feature--ambientes span")
+            bathrooms = safe_select(".feature--bathroom span")
+            description = safe_select(".card__description")
+            property_data = {
+                "price_usd": price_usd,
+                "expenses_ars": expenses_ars,
+                "address": address,
+                "total_area_m2": total_area_m2,
+                "covered_area_m2": covered_area_m2,
+                "rooms": rooms,
+                "bathrooms": bathrooms,
+                "description": description,
+            }
+            self.property_manager.add_property(property_data=property_data)
 
 
 property_service = PropService()

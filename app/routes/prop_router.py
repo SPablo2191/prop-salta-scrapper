@@ -6,8 +6,8 @@ router = APIRouter(prefix="/property", tags=["Property"])
 
 
 @router.get("/")
-def get_properties() -> list[Property]:
+async def get_properties() -> list[Property]:
     try:
-        return property_service.get_properties()
+        return await property_service.get_properties()
     except Exception as e:
         raise HTTPException(status_code=404, detail=e)
