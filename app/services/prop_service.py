@@ -1,6 +1,7 @@
-import httpx
 from bs4 import BeautifulSoup
+import httpx
 from loguru import logger
+import pandas as pd
 from app.config import settings
 from app.schemas import PropertyManager, Property
 
@@ -57,7 +58,12 @@ class PropService:
 
         return self.property_manager.get_properties()
 
+    def set_data_csv(self, dataRows: list[dict]):
+        df = pd.DataFrame(dataRows)
+        df.to_csv("properties.csv", index=False)
+
     def scrape_property(self, properties: list[any]):
+        dataRows = []
         for prop in properties:
 
             def safe_select(selector):
@@ -90,7 +96,9 @@ class PropService:
                 "bathrooms": bathrooms,
                 "description": description,
             }
+            dataRows.append(property_data)
             self.property_manager.add_property(property_data=property_data)
+        self.set_data_csv(dataRows=dataRows)
 
 
 property_service = PropService()
